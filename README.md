@@ -58,4 +58,4 @@ Este proyecto está listo para desplegar **frontend** y **backend** en un solo r
 - Pruebas unitarias de utilidades
 
 ## Créditos
-Diseño y desarrollo por {tu nombre}.
+Diseño y desarrollo por {mesolisdev}.
