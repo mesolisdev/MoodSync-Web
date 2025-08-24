@@ -10,7 +10,7 @@ Aplicación web que, a partir de un estado de ánimo, recomienda playlists públ
 - **Hosting**: Vercel
 
 ## Funcionalidades
-- Selector de _mood_ (feliz, relajado, motivado, melancólico)
+- Selector de _mood_ (feliz, relajado, motivado, melancólico, nostálgico, intenso)
 - Playlists por mood (búsqueda por keywords)
 - Vista de pistas con _preview_ de 30s (si existe `preview_url`)
 - Transiciones y fondo animado por mood
@@ -52,7 +52,7 @@ Este proyecto está listo para desplegar **frontend** y **backend** en un solo r
 - El frontend usa `@vercel/static-build` (Vite) en `frontend/`.
 
 ## Roadmap Sugerido
-- Moods adicionales (energético, focus, rainy day)
+- Moods adicionales (energético, focus, rainy day, romántico)
 - Cache por-mood en el backend (KV)
 - Accesibilidad: navegación por teclado y `prefers-reduced-motion`
 - Pruebas unitarias de utilidades

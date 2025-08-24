@@ -1,134 +1,315 @@
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { MoodProvider, useMood } from "./store/moodStore";
-import MoodPicker from "./components/MoodPicker";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import MoodSelectorCard from "./components/MoodSelectorCard";
 import PlaylistCard from "./components/PlaylistCard";
-import AudioPreview from "./components/AudioPreview";
+import PlaylistModal from "./components/PlaylistModal";
 import MoodBackground from "./components/MoodBackground";
+import FavoritesView from "./components/FavoritesView";
+import Footer from "./components/Footer";
 import { fetchPlaylists, fetchTracks } from "./lib/api";
 
+// ✅ contextos
+import { MoodProvider, useMood } from "./store/moodStore";
+import { FavoritesProvider, useFavorites } from "./store/favoritesStore";
+
+// ✅ Mover constantes fuera del componente para evitar re-creación
+const MOODS = [
+  { id: "feliz", label: "Feliz" },
+  { id: "relajado", label: "Relajado" },
+  { id: "motivado", label: "Motivado" },
+  { id: "melancolico", label: "Melancólico" },
+  { id: "nostalgico", label: "Nostálgico" },
+  { id: "intenso", label: "Intenso" },
+];
+
+// ✅ Función para obtener mood aleatorio
+const getRandomMood = () => {
+  const randomIndex = Math.floor(Math.random() * MOODS.length);
+  return MOODS[randomIndex].id;
+};
+
+// Mapeo ES → EN para el contexto del fondo
+const ES_TO_EN = {
+  feliz: "happy",
+  relajado: "relaxed",
+  motivado: "motivated",
+  melancolico: "melancholic",
+  nostalgico: "nostalgic",
+  intenso: "intense",
+};
+
+// ✅ Configuración de moods para el selector (constante)
+const MOOD_SELECTOR_CONFIG = [
+  { id: "feliz", label: "Feliz", emoji: "☀️", color: "text-amber-500" },
+  { id: "melancolico", label: "Melancólico", emoji: "💧", color: "text-sky-500" },
+  { id: "motivado", label: "Motivado", emoji: "⚡", color: "text-orange-500" },
+  { id: "relajado", label: "Relajado", emoji: "😊", color: "text-emerald-600" },
+  { id: "nostalgico", label: "Nostálgico", emoji: "🌙", color: "text-purple-500" },
+  { id: "intenso", label: "Intenso", emoji: "🔥", color: "text-red-500" },
+];
+
 function Content() {
-  const { mood } = useMood();
+  // Estado de la UI (ES) - Ahora con mood aleatorio
+  const [currentMood, setCurrentMood] = useState(getRandomMood());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [data, setData] = useState({ items: [] });
-  const [selected, setSelected] = useState(null);
-  const palette = useMemo(() => ({
-    happy: "mood-happy",
-    relaxed: "mood-relaxed",
-    motivated: "mood-motivated",
-    melancholic: "mood-melancholic",
-  })[mood], [mood]);
+  const [playlists, setPlaylists] = useState([]);
+  const [currentView, setCurrentView] = useState("home"); // "home" | "favorites"
 
+  // Estado del modal externo
+  const [selected, setSelected] = useState(null);     // { id, title, cover, external_url }
+  const [tracks, setTracks] = useState([]);
+  const [tracksLoading, setTracksLoading] = useState(false);
+  const [tracksError, setTracksError] = useState("");
+
+  // ✅ contextos
+  const { setMood } = useMood();
+  const { favoritesCount } = useFavorites();
+
+  // Sincroniza selección ES → contexto EN (también en el primer render)
   useEffect(() => {
-    let alive = true;
+    setMood(ES_TO_EN[currentMood] || "relaxed");
+  }, [currentMood, setMood]);
+
+  // ✅ Memoizar cálculos derivados
+  const moodLabel = useMemo(
+    () => MOODS.find((m) => m.id === currentMood)?.label ?? "—",
+    [currentMood]
+  );
+
+  // ✅ Memoizar función de cambio de mood
+  const handleMoodChange = useCallback((newMood) => {
+    setCurrentMood(newMood);
+  }, []);
+
+  // ✅ Memoizar transformación de playlists
+  const transformedPlaylists = useMemo(() => {
+    console.log('🔄 Transforming playlists:', playlists.length, 'items');
+    const transformed = playlists.map((p) => ({
+      id: p.id,
+      title: p.name,
+      cover: p.images?.[0]?.url,
+      count: p.tracks_total ?? p.tracks?.total ?? p.tracksCount,
+      genre: p.owner?.display_name ?? p.owner?.id ?? p.genre,
+      external_url: p.external_urls?.spotify ?? `https://open.spotify.com/playlist/${p.id}`,
+    }));
+    console.log('✅ Transformed playlists:', transformed);
+    return transformed;
+  }, [playlists]);
+
+  // ✅ Cargar playlists por mood optimizado
+  useEffect(() => {
+    let ignore = false;
     setLoading(true);
     setError("");
+
+    console.log('🔄 Fetching playlists for mood:', currentMood);
+    fetchPlaylists(currentMood)
+      .then((data) => {
+        if (ignore) return;
+        console.log('✅ Received playlists data:', data);
+        // El backend ahora retorna { mood, items, total }
+        const items = data?.items || [];
+        console.log('📋 Processing items:', items.length, 'playlists');
+        setPlaylists(items); // Ya no necesitamos transformar aquí, lo hacemos en el useMemo
+      })
+      .catch((e) => {
+        if (ignore) return;
+        console.error('Error fetching playlists:', e);
+        const errorMsg = e.code === 'CONNECTION_ERROR' 
+          ? 'No se pudo conectar con el servidor 🌐'
+          : 'Ups, no pude traer playlists 😕';
+        setError(errorMsg);
+        setPlaylists([]);
+      })
+      .finally(() => !ignore && setLoading(false));
+
+    return () => { ignore = true; };
+  }, [currentMood]);
+
+  // ✅ Optimizar función de abrir playlist con useCallback
+  const openPlaylist = useCallback(async (pl) => {
+    setSelected(pl);
+    setTracks([]);
+    setTracksError("");
+    setTracksLoading(true);
+
+    try {
+      const data = await fetchTracks(pl.id);
+      const list = data?.tracks || []; // El backend ahora retorna { playlistId, tracks, total }
+      
+      const normalized = list.map((t) => {
+        const tr = t.track ?? t;
+        const artists = typeof tr.artists === "string"
+          ? tr.artists
+          : (tr.artists ?? []).map((a) => a.name ?? a).join(", ");
+
+        return {
+          id: tr.id,
+          name: tr.name,
+          artists,
+          preview_url: tr.preview_url ?? null,
+          albumCover: t.image || tr.album?.images?.[2]?.url || tr.album?.images?.[0]?.url || pl.cover,
+          external_url: tr.external_urls?.spotify || (tr.id ? `https://open.spotify.com/track/${tr.id}` : undefined),
+        };
+      });
+
+      setTracks(normalized);
+    } catch (e) {
+      console.error("Error fetching tracks:", e);
+      const errorMsg = e.code === 'CONNECTION_ERROR'
+        ? 'No se pudo conectar con el servidor 🌐'
+        : `No se pudieron cargar los tracks. ${e.message || ""}`;
+      setTracksError(errorMsg);
+    } finally {
+      setTracksLoading(false);
+    }
+  }, []);
+
+  // ✅ Optimizar función de cerrar playlist con useCallback
+  const closePlaylist = useCallback(() => {
     setSelected(null);
-    fetchPlaylists(mood)
-      .then((d) => alive && setData(d))
-      .catch(() => alive && setError("Ups, no pude traer playlists"))
-      .finally(() => alive && setLoading(false));
-    return () => { alive = false; };
-  }, [mood]);
+    setTracks([]);
+    setTracksLoading(false);
+    setTracksError("");
+  }, []);
 
   return (
-    <div className="min-h-dvh relative p-6 md:p-10">
+    <div className="min-h-screen relative flex flex-col">
+      {/* 🔮 Fondo reactivo al mood (contexto) */}
       <MoodBackground />
 
-      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="font-display text-3xl md:text-4xl">MoodSync Mini</h1>
-          <p className="text-slate-300">Playlists que combinan con tu mood</p>
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-white/70 dark:bg-zinc-950/60 backdrop-blur border-b border-zinc-200/60 dark:border-zinc-800/60">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <button 
+            onClick={() => setCurrentView("home")}
+            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+          >
+            <div className="h-8 w-8 rounded-full bg-emerald-600 text-white grid place-items-center">🎵</div>
+            <span className="font-semibold">MoodSync</span>
+          </button>
+          <nav className="text-sm text-zinc-500 flex items-center gap-5">
+            <button 
+              onClick={() => setCurrentView("favorites")}
+              className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors flex items-center gap-1 ${
+                currentView === "favorites" ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""
+              }`}
+            >
+              Favoritos
+              {favoritesCount > 0 && (
+                <span className="bg-rose-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+                  {favoritesCount}
+                </span>
+              )}
+            </button>
+          </nav>
         </div>
-        <MoodPicker />
       </header>
 
-      <main className="mt-8">
-        {loading && <div className="text-slate-300">Cargando playlists…</div>}
-        {error && <div className="text-red-300">{error}</div>}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {data.items.map((it) => (
-            <PlaylistCard key={it.id} item={it} onOpen={() => setSelected(it)} />
-          ))}
-        </div>
+      {/* Contenido principal */}
+      <main className="flex-1">
+
+      {/* Contenido condicional basado en la vista actual */}
+      {currentView === "home" ? (
+        <>
+          {/* Hero */}
+          <section className="max-w-6xl mx-auto px-4 pt-10 pb-6 text-center">
+            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-50">
+              MoodSync
+            </h1>
+            <p className="mt-3 text-zinc-600 dark:text-zinc-400">
+              Descubre playlists perfectas para tu estado de ánimo. Deja que la música se adapte a cómo te sientes.
+            </p>
+          </section>
+
+          {/* Selector de mood (sigue usando ES) */}
+          <section className="max-w-6xl mx-auto px-4">
+            <MoodSelectorCard
+              currentMood={currentMood}
+              onMoodChange={handleMoodChange}
+              moods={MOOD_SELECTOR_CONFIG}
+            />
+          </section>
+
+          {/* Listado de playlists */}
+          <section className="max-w-6xl mx-auto px-4 pb-16">
+            <h2 className="text-2xl font-semibold mb-4">
+              Playlists para tu mood:{" "}
+              <span className="text-emerald-700 dark:text-emerald-400">{moodLabel}</span>
+            </h2>
+
+            {loading && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900/70 h-56 animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {!loading && error && (
+              <div className="p-4 rounded-xl border border-rose-200/60 text-rose-700 bg-rose-50/60 dark:bg-rose-950/20 dark:text-rose-300 dark:border-rose-900/40">
+                {error}
+              </div>
+            )}
+
+            {!loading && !error && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {transformedPlaylists.map((pl) => (
+                  <PlaylistCard
+                    key={pl.id ?? pl.title}
+                    cover={pl.cover}
+                    title={pl.title}
+                    subtitle={pl.genre ?? pl.category}
+                    count={pl.count}
+                    onClick={() => openPlaylist(pl)}
+                    playlist={pl}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      ) : (
+        <>
+          {/* Hero para favoritos */}
+          <section className="max-w-6xl mx-auto px-4 pt-10 pb-6 text-center">
+            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-50">
+              Mis Favoritos
+            </h1>
+            <p className="mt-3 text-zinc-600 dark:text-zinc-400">
+              Todas las playlists que has marcado como favoritas en un solo lugar.
+            </p>
+          </section>
+
+          {/* Vista de favoritos */}
+          <FavoritesView onPlaylistOpen={openPlaylist} />
+        </>
+      )}
       </main>
 
-      <AnimatePresence>
-        {selected && (
-          <motion.div
-            className="fixed inset-0 bg-black/60 backdrop-blur flex items-center justify-center p-4 z-50"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              className="card w-full max-w-2xl p-5"
-              initial={{ y: 30, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 30, opacity: 0 }}
-            >
-              <div className="flex items-start gap-4">
-                <img src={selected.images?.[0]?.url} alt={selected.name} className="w-24 h-24 rounded-xl object-cover" />
-                <div className="flex-1">
-                  <h3 className="font-display text-2xl">{selected.name}</h3>
-                  <p className="text-slate-300 text-sm">{selected.description}</p>
-                  <a className="text-sky-300 text-sm underline" href={selected.external_url} target="_blank" rel="noreferrer">Abrir en Spotify</a>
-                </div>
-                <button className="btn bg-white/10" onClick={() => setSelected(null)}>Cerrar</button>
-              </div>
+      {/* Footer */}
+      <Footer />
 
-              <TrackList playlistId={selected.id} />
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <footer className="mt-10 text-center text-xs text-slate-400">
-        Hecho con ❤ por ti. Stack: React + Vite + Tailwind + Framer Motion + Spotify API
-      </footer>
+      {/* Modal externo */}
+      <PlaylistModal
+        open={!!selected}
+        onClose={closePlaylist}
+        playlist={selected}
+        tracks={tracks}
+        loading={tracksLoading}
+        error={tracksError}
+      />
     </div>
   );
 }
 
-function TrackList({ playlistId }) {
-  const [tracks, setTracks] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    fetchTracks(playlistId)
-      .then((d) => alive && setTracks(d.tracks || []))
-      .finally(() => alive && setLoading(false));
-    return () => { alive = false; };
-  }, [playlistId]);
-
-  if (loading) return <div className="mt-4 text-slate-300">Cargando canciones…</div>;
-
-  return (
-    <div className="mt-4 space-y-3 max-h-[50vh] overflow-y-auto pr-2">
-      {tracks.map((t) => (
-        <div key={t.id || t.external_url} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5">
-          <img src={t.image} alt="cover" className="w-12 h-12 rounded-lg object-cover" />
-          <div className="flex-1 min-w-0">
-            <div className="truncate">{t.name}</div>
-            <div className="text-xs text-slate-400 truncate">{t.artists} · {t.album}</div>
-          </div>
-          <AudioPreview src={t.preview_url} />
-        </div>
-      ))}
-      {tracks.length === 0 && (
-        <div className="text-slate-400 text-sm">Esta playlist no tiene previews disponibles.</div>
-      )}
-    </div>
-  );
-}
-
+// Export: App envuelta en los providers de contexto
 export default function App() {
   return (
     <MoodProvider>
-      <Content />
+      <FavoritesProvider>
+        <Content />
+      </FavoritesProvider>
     </MoodProvider>
   );
 }

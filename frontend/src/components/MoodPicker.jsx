@@ -6,6 +6,8 @@ const MOODS = [
   { key: "relaxed", label: "Relajado" },
   { key: "motivated", label: "Motivado" },
   { key: "melancholic", label: "Melancólico" },
+  { key: "nostalgic", label: "Nostálgico" },
+  { key: "intense", label: "Intenso" },
 ];
 
 export default function MoodPicker() {

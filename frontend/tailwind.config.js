@@ -13,6 +13,8 @@ export default {
           relaxed: "#80DED9",
           motivated: "#5DE06A",
           melancholic: "#6C63FF",
+          nostalgic: "#A855F7",
+          intense: "#EF4444",
         },
       },
     },
